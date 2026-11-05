@@ -1,0 +1,13 @@
+{
+  "version": "1.0",
+  "project_name": "reverse-dating",
+  "display_name": "Reverse Dating Web Application",
+  "workflow": {
+    "research": true,
+    "plan_check": true,
+    "verifier": true,
+    "branching": "main"
+  },
+  "model_profile": "balanced",
+  "created_at": "2026-11-05T05:34:00Z"
+}
