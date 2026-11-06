@@ -115,6 +115,9 @@ console.log(`[Status] Linked Owner Chat ID: ${OWNER_CHAT_ID}`);
 let offset = 0;
 
 async function pollUpdates() {
+  // Clear any existing webhook so local long polling succeeds
+  await tgRequest('deleteWebhook', { drop_pending_updates: false });
+
   while (true) {
     try {
       const data = await tgRequest('getUpdates', {
