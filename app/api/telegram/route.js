@@ -53,7 +53,8 @@ export async function POST(request) {
 
         // Edit original message to remove buttons and stamp decision
         if (query.message) {
-          const originalText = query.message.text || '';
+          const isPhotoMessage = Boolean(query.message.photo || query.message.caption !== undefined);
+          const originalContent = (isPhotoMessage ? query.message.caption : query.message.text) || '';
           const statusHeader = isApproved
             ? '*[DECISION: MATCH AGREED // ACCEPTED]*'
             : '*[DECISION: PASSED // REJECTED]*';
@@ -64,13 +65,25 @@ export async function POST(request) {
             minute: '2-digit',
           });
 
-          await tgRequest('editMessageText', {
-            chat_id: query.message.chat.id,
-            message_id: query.message.message_id,
-            text: `${statusHeader}\n\n${originalText}\n\n*Decided by Pruthviraj:* ${timeStr} IST`,
-            parse_mode: 'Markdown',
-            reply_markup: { inline_keyboard: [] },
-          });
+          const stampedText = `${statusHeader}\n\n${originalContent}\n\n*Decided by Pruthviraj:* ${timeStr} IST`.slice(0, 1024);
+
+          if (isPhotoMessage) {
+            await tgRequest('editMessageCaption', {
+              chat_id: query.message.chat.id,
+              message_id: query.message.message_id,
+              caption: stampedText,
+              parse_mode: 'Markdown',
+              reply_markup: { inline_keyboard: [] },
+            });
+          } else {
+            await tgRequest('editMessageText', {
+              chat_id: query.message.chat.id,
+              message_id: query.message.message_id,
+              text: stampedText,
+              parse_mode: 'Markdown',
+              reply_markup: { inline_keyboard: [] },
+            });
+          }
         }
       }
     }

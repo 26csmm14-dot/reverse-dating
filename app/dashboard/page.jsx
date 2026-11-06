@@ -180,6 +180,7 @@ export default function DashboardPage() {
           applicantId: visitor?.id || (typeof window !== 'undefined' ? localStorage.getItem('applicant_id') : null),
           name: visitorName.trim(),
           contact: visitorContact.trim(),
+          photo: visitor?.photo || null,
           pitch: customPitch.trim(),
           firstDateIdea: selectedIdeaObj ? selectedIdeaObj.title : selectedDateIdea,
         }),

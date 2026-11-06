@@ -137,8 +137,8 @@ export default function LoginPage() {
     if (error) setError('');
   };
 
-  // Image Upload Handling (converts to Data URL)
-  const handleFileUpload = (e) => {
+  // Image Upload Handling (auto-resizes and optimizes for instant transmission)
+  const handleFileUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -147,20 +147,48 @@ export default function LoginPage() {
       return;
     }
 
-    if (file.size > 5 * 1024 * 1024) {
-      setError('Image file must be under 5MB.');
-      return;
-    }
+    try {
+      // Create reader & compress to optimal avatar dimensions (max 1000px, 85% JPEG)
+      const dataUrl = await new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          const img = new Image();
+          img.onload = () => {
+            let width = img.width;
+            let height = img.height;
+            const maxDim = 1000;
+            if (width > maxDim || height > maxDim) {
+              if (width > height) {
+                height = Math.round((height * maxDim) / width);
+                width = maxDim;
+              } else {
+                width = Math.round((width * maxDim) / height);
+                height = maxDim;
+              }
+            }
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, width, height);
+            resolve(canvas.toDataURL('image/jpeg', 0.85));
+          };
+          img.onerror = () => resolve(event.target.result);
+          img.src = event.target.result;
+        };
+        reader.onerror = () => resolve('');
+        reader.readAsDataURL(file);
+      });
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result;
-      setPhotoPreview(dataUrl);
-      setIsSkipped(false);
-      setFormData((prev) => ({ ...prev, photo: dataUrl }));
-      setError('');
-    };
-    reader.readAsDataURL(file);
+      if (dataUrl) {
+        setPhotoPreview(dataUrl);
+        setIsSkipped(false);
+        setFormData((prev) => ({ ...prev, photo: dataUrl }));
+        setError('');
+      }
+    } catch (err) {
+      console.warn('Image processing fallback:', err);
+    }
   };
 
   const handleSkipPhoto = () => {
@@ -242,6 +270,11 @@ export default function LoginPage() {
 
       if (!res.ok || !data.success) {
         throw new Error(data.error || 'Failed to authenticate');
+      }
+
+      if (typeof window !== 'undefined' && data.applicant?.id) {
+        localStorage.setItem('applicant_id', data.applicant.id);
+        localStorage.setItem('applicant_status', data.applicant.status || 'viewing');
       }
 
       const { status } = data.applicant;

@@ -12,13 +12,23 @@ export async function POST(request) {
     const cookieApplicantId = cookieStore.get('applicant_id')?.value;
 
     const body = await request.json().catch(() => ({}));
-    const { name, contact, pitch, firstDateIdea, contactType, countryCode } = body;
+    const {
+      name,
+      contact,
+      photo,
+      pitch,
+      firstDateIdea,
+      contactType,
+      countryCode,
+      applicantId: bodyApplicantId,
+    } = body;
 
     let applicant = null;
+    const activeId = cookieApplicantId || bodyApplicantId;
 
-    // Secure: verify session from cookie first
-    if (cookieApplicantId) {
-      applicant = await dbService.findById(cookieApplicantId);
+    // Secure: verify session from cookie or body applicantId
+    if (activeId) {
+      applicant = await dbService.findById(activeId);
     }
 
     // If unauthenticated guest, validate and create or find by contact
@@ -52,6 +62,7 @@ export async function POST(request) {
           name: name.trim(),
           contact: cleanContact,
           contactType: contactType || 'instagram',
+          photo: photo ? photo.trim() : 'avatar-1',
           status: 'viewing',
         });
       }
@@ -69,6 +80,8 @@ export async function POST(request) {
 
     // Update details and set status to pending
     const docId = (applicant._id || applicant.id).toString();
+    const safePhoto = (photo && typeof photo === 'string' && photo.trim()) ? photo.trim() : applicant.photo;
+
     applicant = await dbService.update(docId, {
       status: 'pending',
       appliedAt: new Date(),
@@ -76,6 +89,7 @@ export async function POST(request) {
       firstDateIdea: firstDateIdea ? firstDateIdea.trim() : applicant.firstDateIdea,
       name: name ? name.trim() : applicant.name,
       contact: contact ? contact.trim().toLowerCase() : applicant.contact,
+      photo: safePhoto,
     });
 
     // Set cookie
@@ -84,18 +98,20 @@ export async function POST(request) {
       secure: process.env.NODE_ENV === 'production',
       maxAge: 60 * 60 * 24 * 30,
       path: '/',
+      sameSite: 'lax',
     });
 
-    // Detect live domain for 1-click instant decision links
+    // Detect live domain for cloud webhook registration
     const host = request.headers.get('x-forwarded-host') || request.headers.get('host') || 'localhost:3000';
     const proto = request.headers.get('x-forwarded-proto') || (host.includes('localhost') ? 'http' : 'https');
     const origin = `${proto}://${host}`;
 
-    // Trigger instant notification webhook (Telegram Bot API)
+    // Trigger instant notification webhook with photo (Telegram Bot API)
     await sendTelegramNotification({
       name: applicant.name,
       contact: applicant.contact,
       contactType: applicant.contactType,
+      photo: applicant.photo || safePhoto,
       expectations: applicant.expectations,
       pitch: applicant.pitch,
       firstDateIdea: applicant.firstDateIdea,
@@ -110,9 +126,10 @@ export async function POST(request) {
         id: docId,
         name: applicant.name,
         contact: applicant.contact,
+        photo: applicant.photo || safePhoto,
         firstDateIdea: applicant.firstDateIdea,
         pitch: applicant.pitch,
-        status: applicant.status,
+        status: 'pending',
         appliedAt: applicant.appliedAt,
       },
       message: 'Match proposal transmitted to the host.',
@@ -120,7 +137,7 @@ export async function POST(request) {
   } catch (error) {
     console.error('Apply API error:', error);
     return NextResponse.json(
-      { success: false, error: error.message || 'Failed to submit match application' },
+      { success: false, error: error.message || 'Server error' },
       { status: 500 }
     );
   }
