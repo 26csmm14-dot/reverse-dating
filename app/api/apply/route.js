@@ -86,6 +86,11 @@ export async function POST(request) {
       path: '/',
     });
 
+    // Detect live domain for 1-click instant decision links
+    const host = request.headers.get('x-forwarded-host') || request.headers.get('host') || 'localhost:3000';
+    const proto = request.headers.get('x-forwarded-proto') || (host.includes('localhost') ? 'http' : 'https');
+    const origin = `${proto}://${host}`;
+
     // Trigger instant notification webhook (Telegram Bot API)
     await sendTelegramNotification({
       name: applicant.name,
@@ -95,6 +100,7 @@ export async function POST(request) {
       pitch: applicant.pitch,
       firstDateIdea: applicant.firstDateIdea,
       applicantId: docId,
+      origin,
     });
 
     return NextResponse.json({

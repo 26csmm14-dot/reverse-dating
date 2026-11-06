@@ -90,25 +90,32 @@ export default function DashboardPage() {
     }
     async function loadSession() {
       try {
-        const res = await fetch('/api/auth');
+        const localId = typeof window !== 'undefined' ? localStorage.getItem('applicant_id') : null;
+        const queryParam = localId ? `?applicant_id=${encodeURIComponent(localId)}` : '';
+        const res = await fetch(`/api/auth${queryParam}`);
         const data = await res.json();
         if (data.authenticated && data.applicant) {
-          setVisitor(data.applicant);
-          setVisitorName(data.applicant.name || '');
-          setVisitorContact(data.applicant.contact || '');
-          if (data.applicant.pitch) setCustomPitch(data.applicant.pitch);
-          if (data.applicant.firstDateIdea) {
+          const app = data.applicant;
+          setVisitor(app);
+          setVisitorName(app.name || '');
+          setVisitorContact(app.contact || '');
+          if (typeof window !== 'undefined' && app.id) {
+            localStorage.setItem('applicant_id', app.id);
+            localStorage.setItem('applicant_status', app.status || 'viewing');
+          }
+          if (app.pitch) setCustomPitch(app.pitch);
+          if (app.firstDateIdea) {
             const matched = DATE_IDEAS.find(
-              (i) => i.id === data.applicant.firstDateIdea || i.title === data.applicant.firstDateIdea
+              (i) => i.id === app.firstDateIdea || i.title === app.firstDateIdea
             );
-            setSelectedDateIdea(matched ? matched.id : data.applicant.firstDateIdea);
+            setSelectedDateIdea(matched ? matched.id : app.firstDateIdea);
           }
           // Redirect immediately if already decided
-          if (data.applicant.status === 'accepted') {
+          if (app.status === 'accepted') {
             window.location.href = '/status/accepted';
             return;
           }
-          if (data.applicant.status === 'rejected') {
+          if (app.status === 'rejected') {
             window.location.href = '/status/404-rejected';
             return;
           }
@@ -124,23 +131,33 @@ export default function DashboardPage() {
 
   // Real-time polling when proposal is pending (immediately detects Telegram decision)
   useEffect(() => {
-    if (visitor?.status !== 'pending' && !submitSuccess) return;
+    const isPending =
+      visitor?.status === 'pending' ||
+      submitSuccess ||
+      (typeof window !== 'undefined' && localStorage.getItem('applicant_status') === 'pending');
+
+    if (!isPending) return;
+
     const interval = setInterval(async () => {
       try {
-        const applicantIdParam = visitor?.id ? `?applicant_id=${encodeURIComponent(visitor.id)}` : '';
-        const res = await fetch(`/api/status${applicantIdParam}`);
+        const storedId =
+          visitor?.id || (typeof window !== 'undefined' ? localStorage.getItem('applicant_id') : '');
+        const queryParam = storedId ? `?applicant_id=${encodeURIComponent(storedId)}` : '';
+        const res = await fetch(`/api/status${queryParam}`);
         const d = await res.json();
         if (d.status === 'accepted') {
           clearInterval(interval);
+          if (typeof window !== 'undefined') localStorage.setItem('applicant_status', 'accepted');
           window.location.href = '/status/accepted';
         } else if (d.status === 'rejected') {
           clearInterval(interval);
+          if (typeof window !== 'undefined') localStorage.setItem('applicant_status', 'rejected');
           window.location.href = '/status/404-rejected';
         }
       } catch (err) {
         // quiet ignore
       }
-    }, 1500);
+    }, 1200);
     return () => clearInterval(interval);
   }, [visitor?.status, visitor?.id, submitSuccess, router]);
 
@@ -160,7 +177,7 @@ export default function DashboardPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          applicantId: visitor?.id,
+          applicantId: visitor?.id || (typeof window !== 'undefined' ? localStorage.getItem('applicant_id') : null),
           name: visitorName.trim(),
           contact: visitorContact.trim(),
           pitch: customPitch.trim(),
@@ -174,8 +191,18 @@ export default function DashboardPage() {
       }
 
       setSubmitSuccess(true);
+      const app = data.applicant || {};
+      const safeId = (app.id || app._id || visitor?.id || '').toString();
+
+      if (typeof window !== 'undefined' && safeId) {
+        localStorage.setItem('applicant_id', safeId);
+        localStorage.setItem('applicant_status', 'pending');
+      }
+
       setVisitor((prev) => ({
         ...prev,
+        ...app,
+        id: safeId,
         status: 'pending',
         name: visitorName.trim(),
         contact: visitorContact.trim(),

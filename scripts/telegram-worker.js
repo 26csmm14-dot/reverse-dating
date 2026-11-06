@@ -119,7 +119,7 @@ async function pollUpdates() {
     try {
       const data = await tgRequest('getUpdates', {
         offset,
-        timeout: 20,
+        timeout: 5,
         allowed_updates: ['message', 'callback_query'],
       });
 
@@ -137,10 +137,12 @@ async function pollUpdates() {
             await handleMessage(update.message);
           }
         }
+      } else {
+        await new Promise((r) => setTimeout(r, 1500));
       }
     } catch (err) {
       console.error('Polling error:', err);
-      await new Promise((r) => setTimeout(r, 3000));
+      await new Promise((r) => setTimeout(r, 2000));
     }
   }
 }

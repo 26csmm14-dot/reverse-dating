@@ -90,7 +90,18 @@ export async function POST(request) {
 export async function GET(request) {
   try {
     const cookieStore = cookies();
-    const applicantId = cookieStore.get('applicant_id')?.value;
+    let applicantId = cookieStore.get('applicant_id')?.value;
+
+    // Resilient fallback for mobile browsers where cookies may be partitioned or blocked
+    if (!applicantId && request) {
+      try {
+        const { searchParams } = new URL(request.url);
+        applicantId = searchParams.get('applicant_id');
+      } catch (e) {}
+      if (!applicantId) {
+        applicantId = request.headers?.get('x-applicant-id');
+      }
+    }
 
     if (!applicantId) {
       return NextResponse.json({ authenticated: false, applicant: null });
