@@ -13,6 +13,7 @@ import {
   Instagram,
   Ghost,
   MessageCircle,
+  Sparkles,
 } from 'lucide-react';
 
 export default function AcceptedPage() {
@@ -121,6 +122,25 @@ export default function AcceptedPage() {
       </div>
 
       <div className="relative z-10 flex flex-col items-center justify-center max-w-2xl mx-auto py-10 px-4 w-full">
+        {/* Top Heading */}
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5 }}
+          className="text-center mb-8"
+        >
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-orange-500/10 border border-orange-500/30 text-orange-400 text-xs font-mono uppercase tracking-wider mb-4 backdrop-blur-md">
+            <Sparkles className="w-3.5 h-3.5 text-orange-400" />
+            <span>Connection Unlocked</span>
+          </div>
+          <h1 className="text-3xl sm:text-5xl font-black text-white tracking-tight mb-3 font-sans">
+            Let&apos;s stay in touch;)
+          </h1>
+          <p className="text-zinc-300 text-sm max-w-md mx-auto leading-relaxed">
+            Pick your favorite platform below to say hi or slide directly into my DMs.
+          </p>
+        </motion.div>
+
         {/* Unlocked Channels Card Deck */}
         <motion.div
           initial={{ opacity: 1, y: 0 }}
