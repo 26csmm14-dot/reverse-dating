@@ -48,14 +48,15 @@ async function updateApplicantStatus(id, status) {
   // 1. Update in MongoDB Atlas
   if (mongoConnected) {
     try {
-      doc = await Applicant.findByIdAndUpdate(
-        id,
-        { $set: { status, decidedAt: new Date() } },
-        { new: true }
-      );
-      if (!doc) {
+      if (mongoose.Types.ObjectId.isValid(id)) {
+        doc = await Applicant.findByIdAndUpdate(
+          id,
+          { $set: { status, decidedAt: new Date() } },
+          { new: true }
+        );
+      } else {
         doc = await Applicant.findOneAndUpdate(
-          { _id: id },
+          { $or: [{ _id: id }, { contact: id }] },
           { $set: { status, decidedAt: new Date() } },
           { new: true }
         );
