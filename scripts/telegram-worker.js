@@ -44,25 +44,31 @@ mongoose
 
 async function updateApplicantStatus(id, status) {
   let doc = null;
+  const cleanId = String(id).trim();
 
   // 1. Update in MongoDB Atlas
   if (mongoConnected) {
     try {
-      if (mongoose.Types.ObjectId.isValid(id)) {
-        doc = await Applicant.findByIdAndUpdate(
-          id,
-          { $set: { status, decidedAt: new Date() } },
-          { new: true }
+      const coll = mongoose.connection.db.collection('applicants');
+      let res = null;
+      if (cleanId.length === 24 && /^[0-9a-fA-F]{24}$/.test(cleanId)) {
+        res = await coll.findOneAndUpdate(
+          { _id: new mongoose.Types.ObjectId(cleanId) },
+          { $set: { status, decidedAt: new Date(), updatedAt: new Date() } },
+          { returnDocument: 'after' }
         );
-      } else {
-        doc = await Applicant.findOneAndUpdate(
-          { $or: [{ _id: id }, { contact: id }] },
-          { $set: { status, decidedAt: new Date() } },
-          { new: true }
+        if (res) doc = res.value || res;
+      }
+      if (!doc) {
+        res = await coll.findOneAndUpdate(
+          { $or: [{ _id: cleanId }, { contact: cleanId.toLowerCase() }] },
+          { $set: { status, decidedAt: new Date(), updatedAt: new Date() } },
+          { returnDocument: 'after' }
         );
+        if (res) doc = res.value || res;
       }
       if (doc) {
-        console.log(`[Worker] Updated ${doc.name || id} to ${status} in MongoDB Atlas`);
+        console.log(`[Worker] Successfully updated ${doc.name || cleanId} to ${status} in MongoDB Atlas!`);
       }
     } catch (err) {
       console.warn('[Worker] Atlas update warning:', err.message);
@@ -73,7 +79,7 @@ async function updateApplicantStatus(id, status) {
   try {
     if (fs.existsSync(DATA_FILE)) {
       const list = JSON.parse(fs.readFileSync(DATA_FILE, 'utf-8'));
-      const index = list.findIndex((a) => a._id === id || a.id === id);
+      const index = list.findIndex((a) => a._id === cleanId || a.id === cleanId || a.contact?.toLowerCase() === cleanId.toLowerCase());
       if (index !== -1) {
         list[index].status = status;
         list[index].decidedAt = new Date().toISOString();

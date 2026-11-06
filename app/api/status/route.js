@@ -4,10 +4,20 @@ import { dbService } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export async function GET(request) {
   try {
     const cookieStore = cookies();
-    const applicantId = cookieStore.get('applicant_id')?.value;
+    let applicantId = cookieStore.get('applicant_id')?.value;
+
+    if (!applicantId && request) {
+      try {
+        const { searchParams } = new URL(request.url);
+        applicantId = searchParams.get('applicant_id');
+      } catch (e) {}
+      if (!applicantId) {
+        applicantId = request.headers?.get('x-applicant-id');
+      }
+    }
 
     if (!applicantId) {
       return NextResponse.json({ authenticated: false, status: 'unauthenticated' });

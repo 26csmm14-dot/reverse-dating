@@ -103,6 +103,15 @@ export default function DashboardPage() {
             );
             setSelectedDateIdea(matched ? matched.id : data.applicant.firstDateIdea);
           }
+          // Redirect immediately if already decided
+          if (data.applicant.status === 'accepted') {
+            window.location.href = '/status/accepted';
+            return;
+          }
+          if (data.applicant.status === 'rejected') {
+            window.location.href = '/status/404-rejected';
+            return;
+          }
         }
       } catch (err) {
         console.error('Failed to load session:', err);
@@ -115,22 +124,25 @@ export default function DashboardPage() {
 
   // Real-time polling when proposal is pending (immediately detects Telegram decision)
   useEffect(() => {
-    if (visitor?.status !== 'pending') return;
+    if (visitor?.status !== 'pending' && !submitSuccess) return;
     const interval = setInterval(async () => {
       try {
-        const res = await fetch('/api/status');
+        const applicantIdParam = visitor?.id ? `?applicant_id=${encodeURIComponent(visitor.id)}` : '';
+        const res = await fetch(`/api/status${applicantIdParam}`);
         const d = await res.json();
         if (d.status === 'accepted') {
-          router.push('/status/accepted');
+          clearInterval(interval);
+          window.location.href = '/status/accepted';
         } else if (d.status === 'rejected') {
-          router.push('/status/404-rejected');
+          clearInterval(interval);
+          window.location.href = '/status/404-rejected';
         }
       } catch (err) {
         // quiet ignore
       }
-    }, 3000);
+    }, 1500);
     return () => clearInterval(interval);
-  }, [visitor?.status, router]);
+  }, [visitor?.status, visitor?.id, submitSuccess, router]);
 
   // Handle Application / Match Proposal Submission
   const handleApply = async (e) => {
