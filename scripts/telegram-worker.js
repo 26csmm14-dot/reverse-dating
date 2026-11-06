@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const mongoose = require('mongoose');
 
 // Read .env.local manually
 function loadEnv() {
@@ -22,31 +23,69 @@ loadEnv();
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '9031585898:AAGJgrNHQAQ9veHO7_k_zRSrJt7Z0qc0mUM';
 const OWNER_CHAT_ID = process.env.TELEGRAM_CHAT_ID || '7192300395';
-
-if (!BOT_TOKEN) {
-  console.error('[Error] TELEGRAM_BOT_TOKEN is missing');
-  process.exit(1);
-}
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb+srv://26csmm14_db_user:btRXu57YKBaPR82i@cluster0.zhvganu.mongodb.net/reverse_dating?retryWrites=true&w=majority';
 
 const DATA_FILE = path.join(__dirname, '..', 'data', 'applicants.json');
 
-function updateApplicantStatus(id, status) {
-  try {
-    if (!fs.existsSync(DATA_FILE)) return null;
-    const list = JSON.parse(fs.readFileSync(DATA_FILE, 'utf-8'));
-    const index = list.findIndex((a) => a._id === id || a.id === id);
-    if (index === -1) return null;
+// Connect to MongoDB Atlas
+let mongoConnected = false;
+const ApplicantSchema = new mongoose.Schema({}, { strict: false, timestamps: true });
+const Applicant = mongoose.models.Applicant || mongoose.model('Applicant', ApplicantSchema);
 
-    list[index].status = status;
-    list[index].decidedAt = new Date().toISOString();
-    list[index].updatedAt = new Date().toISOString();
+mongoose
+  .connect(MONGODB_URI)
+  .then(() => {
+    mongoConnected = true;
+    console.log('[Worker] Connected to MongoDB Atlas for real-time decision syncing!');
+  })
+  .catch((e) => {
+    console.warn('[Worker] MongoDB Atlas connection warning:', e.message);
+  });
 
-    fs.writeFileSync(DATA_FILE, JSON.stringify(list, null, 2));
-    return list[index];
-  } catch (err) {
-    console.error('Error updating applicant store:', err);
-    return null;
+async function updateApplicantStatus(id, status) {
+  let doc = null;
+
+  // 1. Update in MongoDB Atlas
+  if (mongoConnected) {
+    try {
+      doc = await Applicant.findByIdAndUpdate(
+        id,
+        { $set: { status, decidedAt: new Date() } },
+        { new: true }
+      );
+      if (!doc) {
+        doc = await Applicant.findOneAndUpdate(
+          { _id: id },
+          { $set: { status, decidedAt: new Date() } },
+          { new: true }
+        );
+      }
+      if (doc) {
+        console.log(`[Worker] Updated ${doc.name || id} to ${status} in MongoDB Atlas`);
+      }
+    } catch (err) {
+      console.warn('[Worker] Atlas update warning:', err.message);
+    }
   }
+
+  // 2. Also update local store if available
+  try {
+    if (fs.existsSync(DATA_FILE)) {
+      const list = JSON.parse(fs.readFileSync(DATA_FILE, 'utf-8'));
+      const index = list.findIndex((a) => a._id === id || a.id === id);
+      if (index !== -1) {
+        list[index].status = status;
+        list[index].decidedAt = new Date().toISOString();
+        list[index].updatedAt = new Date().toISOString();
+        fs.writeFileSync(DATA_FILE, JSON.stringify(list, null, 2));
+        if (!doc) doc = list[index];
+      }
+    }
+  } catch (err) {
+    console.error('[Worker] Error updating local store:', err.message);
+  }
+
+  return doc;
 }
 
 async function tgRequest(method, payload) {
@@ -63,7 +102,7 @@ async function tgRequest(method, payload) {
   }
 }
 
-console.log('[Telegram Polling Worker] Starting for Pruthviraj Match Bot...');
+console.log('[Telegram Polling Worker] Active and listening for Pruthviraj Match decisions...');
 console.log(`[Status] Linked Owner Chat ID: ${OWNER_CHAT_ID}`);
 
 let offset = 0;
@@ -116,8 +155,8 @@ async function handleCallbackQuery(query) {
   const isApproved = action === 'accept';
   const newStatus = isApproved ? 'accepted' : 'rejected';
 
-  // Update applicant in data store
-  const updated = updateApplicantStatus(applicantId, newStatus);
+  // Update applicant in database
+  const updated = await updateApplicantStatus(applicantId, newStatus);
   const candName = updated ? updated.name : 'Candidate';
 
   // Answer callback alert on host phone
@@ -129,7 +168,7 @@ async function handleCallbackQuery(query) {
     show_alert: true,
   });
 
-  // Edit original Telegram message to show updated decision stamp
+  // Edit original message to remove buttons and stamp decision
   if (message) {
     const originalText = message.text || '';
     const statusHeader = isApproved
@@ -142,51 +181,52 @@ async function handleCallbackQuery(query) {
       minute: '2-digit',
     });
 
-    const updatedText = `
-${statusHeader}
-
-${originalText}
-
-*Decided by Pruthviraj:* ${timeStr} IST
-`.trim();
-
     await tgRequest('editMessageText', {
       chat_id: message.chat.id,
       message_id: message.message_id,
-      text: updatedText,
+      text: `${statusHeader}\n\n${originalText}\n\n*Decided by Pruthviraj:* ${timeStr} IST`,
       parse_mode: 'Markdown',
-      reply_markup: { inline_keyboard: [] }, // Remove buttons once decision is cast
+      reply_markup: { inline_keyboard: [] },
     });
   }
-
-  console.log(`[Decision Executed in Telegram] ${applicantId} -> ${newStatus}`);
 }
 
-async function handleMessage(msg) {
-  const text = (msg.text || '').trim();
-  const chatId = msg.chat.id;
+async function handleMessage(message) {
+  const text = message.text ? message.text.trim().toLowerCase() : '';
+  const chatId = message.chat.id;
 
-  if (text === '/start' || text.toLowerCase() === 'help') {
+  if (String(chatId) !== String(OWNER_CHAT_ID)) {
+    return;
+  }
+
+  if (text === '/start' || text === '/status' || text === '/help') {
+    let stats = { total: 0, pending: 0, accepted: 0, rejected: 0 };
+    if (mongoConnected) {
+      try {
+        stats.total = await Applicant.countDocuments();
+        stats.pending = await Applicant.countDocuments({ status: 'pending' });
+        stats.accepted = await Applicant.countDocuments({ status: 'accepted' });
+        stats.rejected = await Applicant.countDocuments({ status: 'rejected' });
+      } catch (e) {}
+    }
+
+    const reply = `
+*WANNA DATE U // REVERSE DATING BOT STATUS*
+
+*Host:* Pruthviraj (NCC Rifle Shooter & Full-Stack Developer)
+*Total Applicants in Database:* ${stats.total}
+*Pending Decision:* ${stats.pending}
+*Accepted Matches:* ${stats.accepted}
+*Rejected / 404:* ${stats.rejected}
+
+You will receive an instant push notification here whenever someone submits a proposal.
+`.trim();
+
     await tgRequest('sendMessage', {
       chat_id: chatId,
-      text: `*WANNA DATE U // Match Bot Active!*\n\nWhen someone applies to match with you on the website, you will receive an instant notification here with their details and *[Agree]* / *[Reject]* buttons.\n\nYou can decide directly from Telegram without needing any admin page.\n\nType /status to view candidates summary.`,
+      text: reply,
       parse_mode: 'Markdown',
     });
-  } else if (text === '/status') {
-    try {
-      const list = fs.existsSync(DATA_FILE) ? JSON.parse(fs.readFileSync(DATA_FILE, 'utf-8')) : [];
-      const pending = list.filter((a) => a.status === 'pending');
-      const accepted = list.filter((a) => a.status === 'accepted');
-      const rejected = list.filter((a) => a.status === 'rejected');
-
-      await tgRequest('sendMessage', {
-        chat_id: chatId,
-        text: `*WANNA DATE U // Candidate Roster*\n\nPending: *${pending.length}*\nAgreed (Accepted): *${accepted.length}*\nRejected: *${rejected.length}*\n\nTotal Evaluated: *${list.length}*`,
-        parse_mode: 'Markdown',
-      });
-    } catch (e) {
-      console.error('Status read error:', e);
-    }
   }
 }
 

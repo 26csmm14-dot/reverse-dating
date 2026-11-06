@@ -3,7 +3,8 @@ import { dbService } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
-const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const DEFAULT_BOT_TOKEN = '9031585898:AAGJgrNHQAQ9veHO7_k_zRSrJt7Z0qc0mUM';
+const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || DEFAULT_BOT_TOKEN;
 
 async function tgRequest(method, payload) {
   try {
